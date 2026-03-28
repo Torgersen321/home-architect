@@ -62,8 +62,10 @@ export function Workspace() {
       const phase = s.conversationPhase;
 
       if (phase === "awaiting_anchor") {
-        // Parse anchor dimension from user input
-        const numberMatch = text.match(/[\d.]+/);
+        // Parse anchor dimension: find the last number in the message
+        // (users often write "the wall between room 2 and 3 is 8 meters")
+        const allNumbers = [...text.matchAll(/\d+\.?\d*/g)].map((m: RegExpMatchArray) => parseFloat(m[0]));
+        const numberMatch = allNumbers.length > 0 ? [String(allNumbers[allNumbers.length - 1])] : null;
         if (!numberMatch) {
           s.addMessage({
             role: "assistant",
@@ -129,7 +131,8 @@ export function Workspace() {
           s.addMessage({ role: "assistant", content: "Generating your construction roadmap..." });
 
           try {
-            const model = s.geometryIR!;
+            const model = s.geometryIR;
+            if (!model) { s.addMessage({ role: "assistant", content: "No model found. Please try uploading your image again." }); return; }
             const roadmap = await generateRoadmap(model);
             s.setRoadmapPhases(roadmap);
             s.setConversationPhase("roadmap_ready");
@@ -152,7 +155,8 @@ export function Workspace() {
         s.setIsAiThinking(true);
 
         try {
-          const result = await refineModel(s.geometryIR!, text);
+          if (!s.geometryIR) { s.setConversationPhase("idle"); return; }
+          const result = await refineModel(s.geometryIR, text);
 
           if (result.type === "question") {
             s.addMessage({ role: "assistant", content: result.text });

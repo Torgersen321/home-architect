@@ -42,6 +42,7 @@ function OpeningMesh({ opening, wall }: { opening: Opening; wall: Wall }) {
   const wallLength = Math.sqrt(
     Math.pow(wall.end.x - wall.start.x, 2) + Math.pow(wall.end.z - wall.start.z, 2)
   );
+  if (wallLength === 0) return null;
   const angle = Math.atan2(wall.end.z - wall.start.z, wall.end.x - wall.start.x);
 
   // Position along wall
@@ -127,13 +128,30 @@ function RoofMesh({ roof, levels }: { roof: Roof; levels: GeometryIR["levels"] }
 }
 
 function BuildingModel({ ir }: { ir: GeometryIR }) {
+  // Calculate bounding box for floor slabs
+  const allWalls = ir.levels.flatMap((l) => l.walls);
+  let minX = 0, maxX = 10, minZ = 0, maxZ = 10;
+  if (allWalls.length > 0) {
+    minX = Infinity; maxX = -Infinity; minZ = Infinity; maxZ = -Infinity;
+    for (const w of allWalls) {
+      minX = Math.min(minX, w.start.x, w.end.x);
+      maxX = Math.max(maxX, w.start.x, w.end.x);
+      minZ = Math.min(minZ, w.start.z, w.end.z);
+      maxZ = Math.max(maxZ, w.start.z, w.end.z);
+    }
+  }
+  const floorW = maxX - minX + 0.5;
+  const floorD = maxZ - minZ + 0.5;
+  const floorCX = (minX + maxX) / 2;
+  const floorCZ = (minZ + maxZ) / 2;
+
   return (
     <group>
       {ir.levels.map((level) => (
         <group key={level.id}>
-          {/* Floor slab */}
-          <mesh position={[0, level.floorHeight - 0.05, 0]}>
-            <boxGeometry args={[20, 0.1, 20]} />
+          {/* Floor slab sized to building footprint */}
+          <mesh position={[floorCX, level.floorHeight - 0.05, floorCZ]}>
+            <boxGeometry args={[floorW, 0.1, floorD]} />
             <meshStandardMaterial color="#E8E0D0" transparent opacity={0.3} />
           </mesh>
 

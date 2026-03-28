@@ -16,8 +16,16 @@ interface ChatRequest {
   }>;
 }
 
+// Limit request body to 25MB (slightly above client's 20MB image limit + JSON overhead)
+const MAX_BODY_BYTES = 25 * 1024 * 1024;
+
 export async function POST(req: NextRequest) {
   try {
+    const contentLength = parseInt(req.headers.get("content-length") || "0", 10);
+    if (contentLength > MAX_BODY_BYTES) {
+      return NextResponse.json({ error: "Request too large." }, { status: 413 });
+    }
+
     const body: ChatRequest = await req.json();
     const { promptType, messages } = body;
 

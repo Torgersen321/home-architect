@@ -100,7 +100,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setConversationPhase: (phase) => set({ conversationPhase: phase }),
   setIsAiThinking: (thinking) => set({ isAiThinking: thinking }),
   addUploadedImage: (dataUrl) =>
-    set((state) => ({ uploadedImages: [...state.uploadedImages, dataUrl] })),
+    set((state) => {
+      // Keep at most 10 images to prevent memory bloat (each ~1-5MB base64)
+      const images = [...state.uploadedImages, dataUrl];
+      return { uploadedImages: images.length > 10 ? images.slice(-10) : images };
+    }),
   setGeometryIR: (ir) => set({ geometryIR: ir }),
   setRoadmapPhases: (phases) => set({ roadmapPhases: phases }),
   setImageAnalysis: (analysis) => set({ imageAnalysis: analysis }),

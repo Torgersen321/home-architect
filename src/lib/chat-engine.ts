@@ -3,6 +3,46 @@ import { validateGeometry, validatePhysics, type GeometryIR } from "./geometry-s
 import type { PromptType } from "./prompts";
 import type { RoadmapPhase } from "./store";
 
+/**
+ * Extract the first balanced JSON object from a string.
+ * Handles nested braces correctly, unlike greedy regex.
+ */
+function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") { depth--; if (depth === 0) return text.slice(start, i + 1); }
+  }
+  return null;
+}
+
+function extractFirstJsonArray(text: string): string | null {
+  const start = text.indexOf("[");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "[") depth++;
+    else if (ch === "]") { depth--; if (depth === 0) return text.slice(start, i + 1); }
+  }
+  return null;
+}
+
 interface ApiMessage {
   role: "user" | "assistant";
   content: string;
@@ -80,15 +120,15 @@ Generate the GeometryIR JSON for this building. Use the anchor measurement to sc
 
   const response = await callApi("generateModel", messages);
 
-  // Extract JSON from response (Claude sometimes wraps in markdown)
-  const jsonMatch = response.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  // Extract the first complete JSON object by finding balanced braces
+  const jsonStr = extractFirstJsonObject(response);
+  if (!jsonStr) {
     throw new Error("AI did not return valid JSON. Please try again.");
   }
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(jsonMatch[0]);
+    parsed = JSON.parse(jsonStr);
   } catch {
     throw new Error("AI returned malformed JSON. Please try again.");
   }
@@ -124,14 +164,14 @@ export async function refineModel(
   const response = await callApi("refineModel", messages);
 
   // Check if it's a question (no JSON) or an updated model
-  const jsonMatch = response.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const refineJson = extractFirstJsonObject(response);
+  if (!refineJson) {
     return { type: "question", text: response };
   }
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(jsonMatch[0]);
+    parsed = JSON.parse(refineJson);
   } catch {
     return { type: "question", text: response };
   }
@@ -157,14 +197,26 @@ export async function generateRoadmap(model: GeometryIR): Promise<RoadmapPhase[]
 
   const response = await callApi("generateRoadmap", messages);
 
-  const jsonMatch = response.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
+  const roadmapJson = extractFirstJsonArray(response);
+  if (!roadmapJson) {
     throw new Error("AI did not return a valid roadmap. Please try again.");
   }
 
   try {
-    const phases: RoadmapPhase[] = JSON.parse(jsonMatch[0]);
-    return phases;
+    const phases = JSON.parse(roadmapJson) as unknown[];
+    // Validate each phase has required fields
+    return phases.map((p: unknown, i: number) => {
+      const phase = p as Record<string, unknown>;
+      return {
+        phase: typeof phase.phase === "number" ? phase.phase : i + 1,
+        name: typeof phase.name === "string" ? phase.name : `Stage ${i + 1}`,
+        description: typeof phase.description === "string" ? phase.description : "",
+        estimatedDuration: typeof phase.estimatedDuration === "string" ? phase.estimatedDuration : "TBD",
+        dependencies: Array.isArray(phase.dependencies) ? phase.dependencies : [],
+        materials: Array.isArray(phase.materials) ? phase.materials : [],
+        tips: Array.isArray(phase.tips) ? phase.tips : [],
+      };
+    });
   } catch {
     throw new Error("AI returned malformed roadmap. Please try again.");
   }
